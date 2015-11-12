@@ -1,8 +1,9 @@
-package net.seninp.cdhit;
+package net.seninp.rnarefinery.cdhit;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import org.junit.Test;
+import net.seninp.rnarefinery.cdhit.CDHITClusterEntry;
 
 public class TestCDHITClusterEntry {
 

@@ -1,4 +1,4 @@
-package net.seninp.cdhit;
+package net.seninp.rnarefinery.cdhit;
 
 import java.util.ArrayList;
 import java.util.HashSet;

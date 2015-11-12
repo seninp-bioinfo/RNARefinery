@@ -1,4 +1,4 @@
-package net.seninp.cdhit;
+package net.seninp.rnarefinery.cdhit;
 
 /**
  * Implements a single line of the cdhit cluster.
