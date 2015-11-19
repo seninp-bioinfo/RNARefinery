@@ -5,15 +5,15 @@ args <- commandArgs(trailingOnly = TRUE)
 print(paste("arguments supplied:",args))
 #
 # [0.1] take care about the input file names
-contigs_llist <- args[1]
-best_tsv <- args[2]
-keepers_list <- args[3]
+llist_fname <- args[1]
+tsv_fname <- args[2]
+keepers_fname <- args[3]
 #
 # [0.2] read the input
 #
-llist <- read.table(contigs_llist, header = FALSE, sep = " ", quote = "",  stringsAsFactors = FALSE,
+llist <- read.table(llist_fname, header = FALSE, sep = " ", quote = "",  stringsAsFactors = FALSE,
                     comment.char = "", colClasses = c("character","integer"))
-tsv <- fread(best_tsv)
+tsv <- fread(tsv_fname)
 setnames(tsv, c("qName","tName","desc","identity","bits","qlen","alen","gaps","evalue"))
 tsv$"%qCoverage" <- tsv$alen/tsv$qlen * 100
 #
