@@ -68,11 +68,11 @@ makellist ${SEARCHPATH}/filters/contigs_after_cdna.fa >${SEARCHPATH}/filters/con
 #
 # 0.6 filter those with less than 20% overlap on REFSEQ PEP
 #
-echo "  running BLASTX CDNA alignment..." >&2
+echo "  running BLASTX PEP alignment..." >&2
 blastall -a 3 -e .01 -d ${reference_pep} -p blastx -i ${SEARCHPATH}/filters/contigs_after_cdna.fa | gzip -9 - > ${SEARCHPATH}/filters/contigs_after_cdna_PEP.blastx.out.gz
 zcat ${SEARCHPATH}/filters/contigs_after_cdna_PEP.blastx.out.gz | ${refinery_bin}/blast_to_table.pl | ${refinery_bin}/hit_table_sorter.pl > ${SEARCHPATH}/filters/contigs_after_cdna_PEP.best.tsv
 #
-echo "  filtering contigs using BLASTX CDNA alignment..." >&2
+echo "  filtering contigs using BLASTX PEP alignment..." >&2
 Rscript ${refinery_bin}/filter20_blast.R ${SEARCHPATH}/filters/contigs_after_cdna.llist ${SEARCHPATH}/filters/contigs_after_cdna_PEP.best.tsv ${SEARCHPATH}/filters/pep_keepers.list
 include_mf ${SEARCHPATH}/filters/raw_contigs.fa ${SEARCHPATH}/filters/contigs_after_pep.fa ${SEARCHPATH}/filters/pep_keepers.list
 makellist ${SEARCHPATH}/filters/contigs_after_pep.fa >${SEARCHPATH}/filters/contigs_after_pep.llist
