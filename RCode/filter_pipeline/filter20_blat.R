@@ -21,7 +21,7 @@ cov_keepers <- tsv[tsv$"%qCoverage" < 20.0,]$qName
 #
 # [0.4] filter the input by no hits
 #
-no_hits_set <- intersect(contigs_llist$V1, tsv$qName)
+no_hits_set <- setdiff(contigs_llist$V1, tsv$qName)
 #
 # [0.5] compose the set and save
 #
