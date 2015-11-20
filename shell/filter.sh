@@ -98,7 +98,7 @@ echo "  filtering contigs using BLAT GENOME alignment..." >&2
 Rscript ${refinery_bin}/filter20_blat.R ${SEARCHPATH}/filters/contigs_after_dna.llist ${SEARCHPATH}/filters/blat_dna_genome.best.tsv ${SEARCHPATH}/filters/genome_keepers.list
 include_mf ${SEARCHPATH}/filters/raw_contigs.fa ${SEARCHPATH}/filters/contigs_after_genome.fa ${SEARCHPATH}/filters/genome_keepers.list
 makellist ${SEARCHPATH}/filters/contigs_after_genome.fa >${SEARCHPATH}/filters/contigs_after_genome.llist
-tail -n+6 blat_dna_genome.psl | psl2bed >blat_dna_genome.bed
+tail -n+6 ${SEARCHPATH}/filters/blat_dna_genome.psl | psl2bed >${SEARCHPATH}/filters/blat_dna_genome.bed
 #
 # 0.9 filter those with less than 20% overlap on ncRNA
 #
