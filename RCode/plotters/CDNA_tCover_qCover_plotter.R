@@ -428,3 +428,98 @@ Cairo(
 )
 do.call(grid.arrange,  plots_tqcover_refseq_pep_after)
 dev.off()
+##################################################################################
+####### REFSeq DNA ###############################################################
+##################################################################################
+#
+assemblys$filter3_refseqdna_tsv <-
+  daply(assemblys, .(accession), function(x) {
+    find_file(x$fullpath, "blat_pep_refseq_dna.best.tsv", recursive = T)
+  })
+assemblys_filter_refseq_dna <- dlply(assemblys, .(accession), function(x){
+  print(paste(x$filter3_refseqdna_tsv))
+  tsv = fread(input = as.character(x$filter3_refseqdna_tsv))
+  setnames(tsv, gsub("%","",names(tsv)))
+  tsv
+})
+#
+plots_tqcover_refdna_before = list()
+for (i in 1:length(dd$accession)) {
+  acc = dd$accession[i]
+  #
+  incontigs_llist = assemblys_contigs_after_refseq_pep_llist[[acc]]
+  tsv = assemblys_filter_refseq_dna[[acc]]
+  no_hits = setdiff(incontigs_llist$contig_name, tsv$tName)
+  title = paste(
+    "refSEQ DNA:",dd$accession[i],dd$tissue[i],"\n",length(no_hits),"out of",
+    length(incontigs_llist$contig_name), "contigs were not aligned"
+  )
+  #
+  plots_tqcover_refdna_before[[i]] = ggplot(data = tsv, aes(x = tCoverage, y = qCoverage, 
+     colour = identity)) +geom_jitter(alpha = 0.5) + geom_density2d() + theme(legend.position = "bottom") +
+    ggtitle(title) + scale_x_continuous(limits=c(0,100)) + scale_y_continuous(limits=c(0,100)) +
+    scale_colour_gradientn(
+      name = "Identity:  ",limits = c(50,100),
+      colours = c("red","yellow","green","lightblue","darkblue"),
+      breaks = c(50,75,100),labels = c("low(50)","medium(75)","high(100)"),
+      guide = guide_colorbar(
+        title.theme = element_text(size = 14, angle = 0),title.vjust = 1,
+        barheight = 0.6, barwidth = 6, label.theme = element_text(size = 10, angle = 0)
+      )
+    )
+}
+Cairo(
+  width = 1200, height = 1200,
+  file = "refseq_dna_alignment.pdf", type = "pdf", pointsize = 20,
+  bg = "transparent", canvas = "white", units = "px", dpi = 60
+)
+do.call(grid.arrange,  plots_tqcover_refdna_before)
+dev.off()
+#
+# Get the out filter contigs LLIST
+#
+assemblys$contigs_after_refseq_dna_llist <-
+  daply(assemblys, .(accession), function(x) {
+    find_file(x$fullpath, "contigs_after_refseq_dna.llist", recursive = T)
+  })
+assemblys_contigs_after_refseq_dna_llist <- dlply(assemblys, .(accession), function(x){
+  print(paste(x$contigs_after_refseq_dna_llist))
+  list = fread(input = as.character(x$contigs_after_refseq_dna_llist), header = F)
+  setnames(list, c("contig_name", "length"))
+  list
+})
+#
+# plot the out CDS filter figure
+#
+plots_tqcover_refseq_dna_after = list()
+for (i in 1:length(dd$accession)) {
+  acc = dd$accession[i]
+  #
+  incontigs_llist = assemblys_contigs_after_refseq_dna_llist[[acc]]
+  tsv = assemblys_filter_refseq_dna[[acc]]
+  no_hits = setdiff(incontigs_llist$contig_name, tsv$tName)
+  outcontigs_llist = assemblys_contigs_after_refseq_dna_llist[[acc]]
+  tsv = filter(tsv, qName %in% outcontigs_llist$contig_name)
+  title = paste("filtered refSeq DNA:",dd$accession[i],dd$tissue[i],"\n",length(no_hits),"out of",
+     length(incontigs_llist$contig_name), "contigs were not aligned")
+  #
+  plots_tqcover_refseq_dna_after[[i]] = ggplot(data = tsv, aes(x = tCoverage, y = qCoverage, 
+    colour = identity)) + geom_jitter(alpha = 0.5) + geom_density2d() + theme(legend.position = "bottom") +
+    ggtitle(title) + scale_x_continuous(limits=c(0,100)) + scale_y_continuous(limits=c(0,100)) +
+    scale_colour_gradientn(
+      name = "Identity:  ",limits = c(50,100),
+      colours = c("red","yellow","green","lightblue","darkblue"),
+      breaks = c(50,75,100),labels = c("low(50)","medium(75)","high(100)"),
+      guide = guide_colorbar(
+        title.theme = element_text(size = 14, angle = 0),title.vjust = 1,
+        barheight = 0.6, barwidth = 6, label.theme = element_text(size = 10, angle = 0)
+      )
+    )
+}
+Cairo(
+  width = 1200, height = 1200,
+  file = "refseq_dna_alignment_filtered.pdf", type = "pdf", pointsize = 20,
+  bg = "transparent", canvas = "white", units = "px", dpi = 60
+)
+do.call(grid.arrange,  plots_tqcover_refseq_dna_after)
+dev.off()
