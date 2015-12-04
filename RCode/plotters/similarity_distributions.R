@@ -63,7 +63,7 @@ find_complete <-
   }
 #
 assemblys$complete <- daply(assemblys, .(accession), function(x) {
-  find_complete(paste(x$fullpath,"/filters",sep = ""))
+  find_complete(paste(x$fullpath,"/filters/",sep=""),"contigs_after_cdna.llist")
 })
 #
 #
@@ -89,22 +89,6 @@ assemblys = merge(assemblys,a_tissue)
 # filter out only complete assemblies
 assemblys <- assemblys[grep("^complete$", assemblys$complete),]
 #
-# populate other data, for this define a find file function
-#
-find_file <-
-  function(path = ".", filename = "", recursive = FALSE) {
-    print(paste("searching ", filename, " in ", path))
-    all <- list.files(
-      path, filename, full.names = TRUE, recursive = recursive, ignore.case = TRUE
-    )
-    all <- all[!file.info(all)$isdir]
-    if (length(all) > 0) {
-      return(all)
-    }else {
-      return(NA)
-    }
-  }
-#
 #
 # get connected to local DB copy and get some SRA info
 #
@@ -126,10 +110,23 @@ assemblys$reads <-
     sra_info(x$accession)$spots
   })
 #
-# Get the LLIST
+# populate other data, for this define a find file function
 #
+find_file <-
+  function(path = ".", filename = "", recursive = FALSE) {
+    print(paste("searching ", filename, " in ", path))
+    all <- list.files(
+      path, filename, full.names = TRUE, recursive = recursive, ignore.case = TRUE
+    )
+    all <- all[!file.info(all)$isdir]
+    if (length(all) > 0) {
+      return(all)
+    }else {
+      return(NA)
+    }
+  }
 #
-# get the contigs
+# Get the raw contigs LLIST
 #
 assemblys$contigs_llist <-
   daply(assemblys, .(accession), function(x) {
@@ -137,7 +134,7 @@ assemblys$contigs_llist <-
   })
 assemblys_contigs_llist <- dlply(assemblys, .(accession), function(x){
   print(paste(x$contigs_llist))
-  list=fread(input=as.character(x$contigs_llist), header=F)
+  list = fread(input = as.character(x$contigs_llist), header = F)
   setnames(list, c("contig_name", "length"))
   list
 })
@@ -161,12 +158,59 @@ assemblys$filter1_cdna_tsv <-
   daply(assemblys, .(accession), function(x) {
     find_file(x$fullpath, "blat_cds_cdna.best.tsv", recursive = T)
   })
-
 assemblys_filter_cdna <- dlply(assemblys, .(accession), function(x){
   print(paste(x$filter1_cdna_tsv))
   tsv = fread(input = as.character(x$filter1_cdna_tsv))
   tsv
 })
+#
+# get the refseq PEP alignment
+#
+assemblys$filter2_refseqpep_tsv <-
+  daply(assemblys, .(accession), function(x) {
+    find_file(x$fullpath, "blat_cdna_refseq_pep.best.tsv", recursive = T)
+  })
+assemblys_filter_cdna <- dlply(assemblys, .(accession), function(x){
+  print(paste(x$filter2_refseqpep_tsv))
+  tsv = fread(input = as.character(x$filter2_refseqpep_tsv))
+  tsv
+})
+
+# get the contigs after 75 squared
+#
+assemblys$squared75_llist <-
+  daply(assemblys, .(accession), function(x) {
+    find_file(x$fullpath, "tcover_contigs_after_cds.llist", recursive = T)
+  })
+squared_contigs_llist <- dlply(assemblys, .(accession), function(x){
+  print(paste(x$squared75_llist))
+  list = fread(input = as.character(x$squared75_llist), header = F)
+  setnames(list, c("contig_name", "length"))
+  list
+})
+
+plots_tqcover = list()
+for(i in 1:length(dd$accession)){
+  acc = dd$accession[i]
+  dataset = assemblys_filter_cds[[acc]]
+  outcontigs_llist = squared_contigs_llist[[acc]]
+  setnames(dataset, gsub("%","",names(dataset)))
+  #dataset = filter(dataset,qLength>500)
+  dataset = dataset[dataset$qName %in% outcontigs_llist$contig_name,]
+  plots_tqcover[[i]] = ggplot(data = dataset, aes(x = tCoverage, y = qCoverage, colour=identity)) + 
+    geom_jitter(alpha=0.5) + geom_density2d() + theme(legend.position="bottom") +
+    ggtitle(paste("tqCoverage (q>500)",paste(dd$accession[i],dd$tissue[i]))) +
+    scale_colour_gradientn(name = "Identity:  ",limits=c(50,100),
+    colours=c("red","yellow","green","lightblue","darkblue"),
+    breaks=c(50,75,100),labels=c("low","medium","high"),
+    guide = guide_colorbar(title.theme=element_text(size=14, angle=0),title.vjust=1,
+    barheight=0.6, barwidth=6, label.theme=element_text(size=10, angle=0)))
+}
+Cairo(width = 1600, height = 1600, 
+      file="after_75cutoff_tcoverage.pdf", type="pdf", pointsize=24, 
+      bg = "transparent", canvas = "white", units = "px", dpi = 55)
+do.call(grid.arrange,  plots_tqcover)
+dev.off()
 
 
 
@@ -293,28 +337,77 @@ for(i in 1:length(dd$accession)){
     guide = guide_colorbar(title.theme=element_text(size=14, angle=0),title.vjust=1,
     barheight=0.6, barwidth=6, label.theme=element_text(size=10, angle=0)))
 }
-
 Cairo(width = 1600, height = 1600, 
-      file="test6.pdf", type="pdf", pointsize=24, 
+      file="before_75cutoff_tcoverage.pdf", type="pdf", pointsize=24, 
+      bg = "transparent", canvas = "white", units = "px", dpi = 55)
+do.call(grid.arrange,  plots_tqcover)
+dev.off()
+
+plots_tqcover = list()
+for(i in 1:length(dd$accession)){
+  acc = dd$accession[i]
+  dataset = assemblys_filter_cds[[acc]]
+  outcontigs_llist = squared_contigs_llist[[acc]]
+  setnames(dataset, gsub("%","",names(dataset)))
+  #dataset = filter(dataset,qLength>500)
+  dataset = dataset[dataset$qName %in% outcontigs_llist$contig_name,]
+  plots_tqcover[[i]] = ggplot(data = dataset, aes(x = tCoverage, y = qCoverage, colour=identity)) + 
+    geom_jitter(alpha=0.5) + geom_density2d() + theme(legend.position="bottom") +
+    ggtitle(paste("tqCoverage (q>500)",paste(dd$accession[i],dd$tissue[i]))) +
+    scale_colour_gradientn(name = "Identity:  ",limits=c(20,100),
+    colours=c("red","yellow","green","lightblue","darkblue"),
+    breaks=c(60,80,100),labels=c("low","medium","high"),
+    guide = guide_colorbar(title.theme=element_text(size=14, angle=0),title.vjust=1,
+            barheight=0.6, barwidth=6, label.theme=element_text(size=10, angle=0)))
+}
+Cairo(width = 1600, height = 1600, 
+      file="after_75cutoff_tcoverage.pdf", type="pdf", pointsize=24, 
       bg = "transparent", canvas = "white", units = "px", dpi = 55)
 do.call(grid.arrange,  plots_tqcover)
 dev.off()
 
 
-llist=fread(input="cdna.llist", header=F)
-setnames(llist, c("contig_name", "length"))
 
 
-
-acc="SRR2185614"
-dataset = assemblys_filter_cds[[acc]]
-setnames(dataset, gsub("%","",names(dataset)))
-dataset = filter(dataset,qLength>500)
-plot_tqcover = ggplot(data = dataset, aes(x = tCoverage, y = qCoverage, colour=identity)) + 
-  geom_jitter(alpha=0.5) + geom_density2d() + theme(legend.position="bottom") +
-  ggtitle(paste("tqCoverage len for SRR2185614",assemblys[assemblys$accession==acc,]$tissue)) +
-  scale_colour_gradientn(name = "Identity:  ",limits=c(60,100),
+plots_tqcover_cdna = list()
+for(i in 1:length(dd$accession)){
+  acc = dd$accession[i]
+  dataset = assemblys_filter_cdna[[acc]]
+  setnames(dataset, gsub("%","",names(dataset)))
+  dataset = filter(dataset,qLength>500)
+  plots_tqcover_cdna[[i]] = ggplot(data = dataset, aes(x = tCoverage, y = qCoverage, colour=identity)) + 
+    geom_jitter(alpha=0.5) + geom_density2d() + theme(legend.position="bottom") +
+    ggtitle(paste("tqCoverage (q>500)",paste(dd$accession[i],dd$tissue[i]))) +
+    scale_colour_gradientn(name = "Identity:  ",limits=c(60,100),
     colours=c("red","yellow","green","lightblue","darkblue"),
     breaks=c(60,80,100),labels=c("low","medium","high"),
     guide = guide_colorbar(title.theme=element_text(size=14, angle=0),title.vjust=1,
     barheight=0.6, barwidth=6, label.theme=element_text(size=10, angle=0)))
+}
+Cairo(width = 1600, height = 1600, 
+      file="test7.pdf", type="pdf", pointsize=24, 
+      bg = "transparent", canvas = "white", units = "px", dpi = 55)
+do.call(grid.arrange,  plots_tqcover_cdna)
+dev.off()
+
+plots_tqcover_genome = list()
+for(i in 1:length(dd$accession)){
+  acc = dd$accession[i]
+  dataset = assemblys_filter_genome[[acc]]
+  setnames(dataset, gsub("%","",names(dataset)))
+  dataset = filter(dataset,qLength>500)
+  plots_tqcover_genome[[i]] = ggplot(data = dataset, aes(x = tCoverage, y = qCoverage, colour=identity)) + 
+    geom_jitter(alpha=0.5) + geom_density2d() + theme(legend.position="bottom") +
+    ggtitle(paste("tqCoverage (q>500)",paste(dd$accession[i],dd$tissue[i]))) +
+    scale_colour_gradientn(name = "Identity:  ",limits=c(60,100),
+    colours=c("red","yellow","green","lightblue","darkblue"),
+    breaks=c(60,80,100),labels=c("low","medium","high"),
+    guide = guide_colorbar(title.theme=element_text(size=14, angle=0),title.vjust=1,
+    barheight=0.6, barwidth=6, label.theme=element_text(size=10, angle=0)))
+}
+Cairo(width = 1600, height = 1600, 
+      file="before_75cutoff_tcoverage.pdf", type="pdf", pointsize=24, 
+      bg = "transparent", canvas = "white", units = "px", dpi = 55)
+do.call(grid.arrange,  plots_tqcover_genome)
+dev.off()
+

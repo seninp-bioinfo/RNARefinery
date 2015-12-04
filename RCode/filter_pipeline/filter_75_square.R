@@ -17,8 +17,12 @@ tsv <- fread(tsv_fname)
 #
 # [0.3] filter the input by coverage
 #
-cov_keepers <- tsv[tsv$"%tCoverage" < 80.0,]$qName
-summary(tsv[tsv$qName %in% cov_keepers, ]$"%qCoverage" )
+exclude_list <- tsv[(tsv$"%identity" >= 75.0) & 
+      ((tsv$"%tCoverage" >= 75.0) | (tsv$"%qCoverage" >= 75.0)),]$qName
+cov_keepers <- setdiff(tsv$qName, exclude_list)
+#summary(tsv[tsv$qName %in% cov_keepers, ]$"%qCoverage" )
+#summary(tsv[tsv$qName %in% cov_keepers, ]$"%tCoverage" )
+#summary(tsv[tsv$qName %in% cov_keepers, ]$"%identity" )
 #
 # [0.4] filter the input by no hits
 #
