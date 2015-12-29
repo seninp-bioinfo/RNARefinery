@@ -58,8 +58,8 @@ public class RNARefineryCDHitTable {
 
   // data location
   //
-  private static final String DATA_PREFIX = "sandbox/";
-  private static final String DATA_FNAME = "contigs_after_dna.cdhit.out.clstr";
+  private static final String DATA_PREFIX = "/media/Stock/RNARefinery/";
+  private static final String DATA_FNAME = "all_contigs_after_refseq_dna.cdhit.out.clstr";
   private static final String QUOTE = "'";
   private static final String TAB = "\t";
 
@@ -90,8 +90,9 @@ public class RNARefineryCDHitTable {
     //
     BufferedWriter bw = new BufferedWriter(
         new FileWriter(new File(DATA_PREFIX + "clusters_length_samples.txt")));
+    bw.write("centroid_name,centroid_length,members_num\n");
     for (Entry<String, CDHITRec> cluster : clusters.entrySet()) {
-      bw.write(("\'" + cluster.getValue().getCentroid().getName() + "\'" + COMMA
+      bw.write(("\"" + cluster.getValue().getCentroid().getName() + "\"" + COMMA
           + cluster.getValue().getCentroid().getLength() + COMMA
           + getDistinctMasks(cluster.getValue()).size()) + CR);
     }
@@ -120,6 +121,7 @@ public class RNARefineryCDHitTable {
     });
 
     bw = new BufferedWriter(new FileWriter(new File(DATA_PREFIX + "clusters_table.txt")));
+    bw.write("centroid_name\tmember_name\tsimilarity\n");
 
     for (int i = 0; i < recs.size(); i++) {
 
@@ -129,9 +131,9 @@ public class RNARefineryCDHitTable {
 
       if (cluster.getEntries().isEmpty()) {
         // cluster is a singleton
-        sb.append(cluster.getCentroid().getName()).append(TAB);
-        sb.append("").append(TAB);
-        sb.append("");
+        sb.append("\"").append(cluster.getCentroid().getName()).append("\"").append(TAB);
+        sb.append("\"NA\"").append(TAB);
+        sb.append("NA");
         sb.append(CR);
       }
       else {

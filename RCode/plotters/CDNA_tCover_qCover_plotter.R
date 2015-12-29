@@ -13,15 +13,19 @@ require(gridExtra)
 require(scales)
 require(Cairo)
 #
+percent <- function(x, digits = 2, format = "f", ...) {
+  paste0(formatC(100 * x, format = format, digits = digits, ...), "%")
+}
+#
 # set folders
 #
 archive_dir <-
   "/work2/project/sigenae/Project_RNA_Refinery/assembled"
 setwd(archive_dir)
 #
-# list all the folders within the working directory
+# FUNCTION: list all the folders within the working directory
 #
-list.dirs <-
+list_dirs <-
   function(path = ".", pattern = NULL, all.dirs = FALSE, full.names = FALSE, ignore.case = FALSE) {
     # use full.names=TRUE to pass to file.info
     all <-
@@ -36,7 +40,7 @@ list.dirs <-
 # make a dataframe of columns:
 #    1) SRA accession
 #
-dirs <- list.dirs(archive_dir, full.names = T)
+dirs <- list_dirs(archive_dir, full.names = T)
 assemblys <-
   data.frame(
     accession = basename(dirs), fullpath = dirs, stringsAsFactors = FALSE
@@ -133,6 +137,25 @@ assemblys_contigs_llist <- dlply(assemblys, .(accession), function(x){
   list
 })
 #
+df = ldply(assemblys_contigs_llist,function(x){length(x$contig_name)})
+setnames(df,c("accession","contigs"))
+assemblys=merge(assemblys,df)
+#
+#
+arranged = dlply(assemblys, .(tissue), function(x){x})
+plots_assemblys_by_tissue = llply(arranged, function(x){
+  tissue = unique(x$tissue)
+  plot_assembly_results <- ggplot(data=x, aes(x=reads, y=contigs, color=accession)) + 
+    theme_bw() + geom_jitter(lwd=2, alpha=0.7) + guides(color=guide_legend(nrow=4,byrow=TRUE)) + 
+    ggtitle(tissue) + theme(legend.position="bottom", legend.text=element_text(size=8),
+        legend.title=element_blank(), legend.key.size = unit(0.3, "lines"))
+  plot_assembly_results
+})
+Cairo(width = 1300, height = 1300, file = "rnarefinery_plots_assemblys_by_tissue.pdf", type = "pdf", pointsize = 20,
+      bg = "transparent", canvas = "white", units = "px", dpi = 60 )
+do.call(grid.arrange,  plots_assemblys_by_tissue)
+dev.off()
+#
 ##################################################################################
 ####### A SAMPLE FOR PLOTTING DEFINED ############################################
 ##################################################################################
@@ -145,31 +168,37 @@ dd = arrange(dd,tissue)
 ##################################################################################
 ####### CDS ######################################################################
 ##################################################################################
+
+# get the TSV filenames
 #
-# get the first CDS alignment
+tsv_mask <- "blat_raw_cds.best.tsv"
+assemblys$filter0_cds_tsv <- daply(assemblys, .(accession), function(x) {
+    find_file(x$fullpath, tsv_mask, recursive = T)  })
+
+# get the TSV data
 #
-assemblys$filter0_cds_tsv <-
-  daply(assemblys, .(accession), function(x) {
-    find_file(x$fullpath, "blat_raw_cds.best.tsv", recursive = T)
-  })
-assemblys_filter_cds <- dlply(assemblys, .(accession), function(x){
-  print(paste(x$filter0_cds_tsv))
-  tsv = fread(input = as.character(x$filter0_cds_tsv))
+cname <- "filter0_cds_tsv"
+assemblys_filter_cds_tsv <- dlply(assemblys, .(accession), function(x){
+  print(paste(x[,paste(cname)]))
+  tsv = fread(input = as.character(x[,paste(cname)]))
   setnames(tsv, gsub("%","",names(tsv)))
   tsv
 })
-#
+
 # plot the CDS alignment
 #
 plots_tqcover_cds_before = list()
 for (i in 1:length(dd$accession)) {
+  #
   acc = dd$accession[i]
   #
   incontigs_llist = assemblys_contigs_llist[[acc]]
-  tsv = assemblys_filter_cds[[acc]]
+  tsv = assemblys_filter_cds_tsv[[acc]]
+  #
   no_hits = setdiff(incontigs_llist$contig_name, tsv$qName)
-  title = paste("CDS:",dd$accession[i],dd$tissue[i],"\n",length(no_hits),"out of",
-    length(incontigs_llist$contig_name), "contigs were not aligned")
+  title = paste("CDS:",dd$accession[i],", ", dd$tissue[i],"\n",length(no_hits),
+    " out of ",length(incontigs_llist$contig_name), " contigs were not aligned (", 
+    percent(length(no_hits)/length(incontigs_llist$contig_name)),")",sep="")
   #
   plots_tqcover_cds_before[[i]] = ggplot(data = tsv, aes(x = tCoverage, y = qCoverage, 
     colour = identity)) +geom_jitter(alpha = 0.5) + geom_density2d() + theme(legend.position = "bottom") +
@@ -191,20 +220,25 @@ Cairo(
 )
 do.call(grid.arrange,  plots_tqcover_cds_before)
 dev.off()
+
+# Get the LLIST filenames
 #
-# Get the out filter contigs LLIST
-#
+llist_mask <- "contigs_after_cds.llist"
 assemblys$contigs_after_cds_llist <-
   daply(assemblys, .(accession), function(x) {
-    find_file(x$fullpath, "contigs_after_cds.llist", recursive = T)
+    find_file(x$fullpath, llist_mask, recursive = T)
   })
+
+# get the LLIST data
+#
+cname <- "contigs_after_cds_llist"
 assemblys_contigs_after_cds_llist <- dlply(assemblys, .(accession), function(x){
-  print(paste(x$contigs_after_cds_llist))
-  list = fread(input = as.character(x$contigs_after_cds_llist), header = F)
+  print(paste(x[,paste(cname)]))
+  list = fread(input = as.character(x[,paste(cname)]), header = F)
   setnames(list, c("contig_name", "length"))
   list
 })
-#
+
 # plot the out CDS filter figure
 #
 plots_tqcover_cds_after = list()
@@ -212,14 +246,16 @@ for (i in 1:length(dd$accession)) {
   acc = dd$accession[i]
   #
   incontigs_llist = assemblys_contigs_llist[[acc]]
-  tsv = assemblys_filter_cds[[acc]]
-  no_hits = setdiff(incontigs_llist$contig_name, tsv$qName)
+  tsv = assemblys_filter_cds_tsv[[acc]]
   outcontigs_llist = assemblys_contigs_after_cds_llist[[acc]]
-  tsv = filter(assemblys_filter_cds[[acc]], qName %in% outcontigs_llist$contig_name)
-  title = paste("filtered CDS:",dd$accession[i],dd$tissue[i],"\n",length(no_hits),"out of",
-    length(incontigs_llist$contig_name), "contigs were not aligned")
   #
-  plots_tqcover_cds_after[[i]] = ggplot(data = tsv, aes(x = tCoverage, y = qCoverage, 
+  no_hits = setdiff(incontigs_llist$contig_name, tsv$qName)
+  tsv_out = filter(tsv, qName %in% outcontigs_llist$contig_name)
+  title = paste("filtered CDS: ",dd$accession[i], ", ", dd$tissue[i],"\nin ",length(incontigs_llist$contig_name),
+    ", out ",length(outcontigs_llist$contig_name)," (no hits: ",length(no_hits), ", excluded: ",
+     length(tsv$qName) - (length(outcontigs_llist$contig_name) - length(no_hits)), ")", sep="")
+  #
+  plots_tqcover_cds_after[[i]] = ggplot(data = tsv_out, aes(x = tCoverage, y = qCoverage, 
       colour = identity)) + geom_jitter(alpha = 0.5) + geom_density2d() + theme(legend.position = "bottom") +
     ggtitle(title) + scale_x_continuous(limits=c(0,100)) + scale_y_continuous(limits=c(0,100)) +
     scale_colour_gradientn(
@@ -240,32 +276,40 @@ dev.off()
 ##################################################################################
 ####### cDNA #####################################################################
 ##################################################################################
+
+# get the TSV filenames
 #
-assemblys$filter1_cdna_tsv <-
-  daply(assemblys, .(accession), function(x) {
-    find_file(x$fullpath, "blat_cds_cdna.best.tsv", recursive = T)
-  })
-assemblys_filter_cdna <- dlply(assemblys, .(accession), function(x){
-  print(paste(x$filter1_cdna_tsv))
-  tsv = fread(input = as.character(x$filter1_cdna_tsv))
+tsv_mask <- "blat_cds_cdna.best.tsv"
+assemblys$filter1_cdna_tsv <- daply(assemblys, .(accession), function(x) {
+  find_file(x$fullpath, tsv_mask, recursive = T)  })
+
+# get the TSV data
+#
+cname <- "filter1_cdna_tsv"
+assemblys_filter_cdna_tsv <- dlply(assemblys, .(accession), function(x){
+  print(paste(x[,paste(cname)]))
+  tsv = fread(input = as.character(x[,paste(cname)]))
   setnames(tsv, gsub("%","",names(tsv)))
   tsv
 })
+
+# plot the CDNA alignment
 #
 plots_tqcover_cdna_before = list()
 for (i in 1:length(dd$accession)) {
+  #
   acc = dd$accession[i]
   #
   incontigs_llist = assemblys_contigs_after_cds_llist[[acc]]
-  tsv = assemblys_filter_cdna[[acc]]
+  tsv = assemblys_filter_cdna_tsv[[acc]]
+  #
   no_hits = setdiff(incontigs_llist$contig_name, tsv$qName)
-  title = paste(
-    "cDNA:",dd$accession[i],dd$tissue[i],"\n",length(no_hits),"out of",
-    length(incontigs_llist$contig_name), "contigs were not aligned"
-  )
+  title = paste("CDNA:",dd$accession[i],", ",dd$tissue[i],"\n",length(no_hits)," out of ",
+                length(incontigs_llist$contig_name), " contigs were not aligned (", 
+                percent(length(no_hits)/length(incontigs_llist$contig_name)),")",sep="")
   #
   plots_tqcover_cdna_before[[i]] = ggplot(data = tsv, aes(x = tCoverage, y = qCoverage, 
-        colour = identity)) +geom_jitter(alpha = 0.5) + geom_density2d() + theme(legend.position = "bottom") +
+    colour = identity)) +geom_jitter(alpha = 0.5) + geom_density2d() + theme(legend.position = "bottom") +
     ggtitle(title) + scale_x_continuous(limits=c(0,100)) + scale_y_continuous(limits=c(0,100)) +
     scale_colour_gradientn(
       name = "Identity:  ",limits = c(50,100),
@@ -284,36 +328,43 @@ Cairo(
 )
 do.call(grid.arrange,  plots_tqcover_cdna_before)
 dev.off()
+
+# Get the LLIST filenames
 #
-# Get the out filter contigs LLIST
-#
+llist_mask <- "contigs_after_cdna.llist"
 assemblys$contigs_after_cdna_llist <-
   daply(assemblys, .(accession), function(x) {
-    find_file(x$fullpath, "contigs_after_cdna.llist", recursive = T)
+    find_file(x$fullpath, llist_mask, recursive = T)
   })
+
+# get the LLIST data
+#
+cname <- "contigs_after_cdna_llist"
 assemblys_contigs_after_cdna_llist <- dlply(assemblys, .(accession), function(x){
-  print(paste(x$contigs_after_cdna_llist))
-  list = fread(input = as.character(x$contigs_after_cdna_llist), header = F)
+  print(paste(x[,paste(cname)]))
+  list = fread(input = as.character(x[,paste(cname)]), header = F)
   setnames(list, c("contig_name", "length"))
   list
 })
-#
-# plot the out CDS filter figure
+
+# plot the out CDNA filter figure
 #
 plots_tqcover_cdna_after = list()
 for (i in 1:length(dd$accession)) {
   acc = dd$accession[i]
   #
   incontigs_llist = assemblys_contigs_after_cds_llist[[acc]]
-  tsv = assemblys_filter_cdna[[acc]]
-  no_hits = setdiff(incontigs_llist$contig_name, tsv$qName)
+  tsv = assemblys_filter_cdna_tsv[[acc]]
   outcontigs_llist = assemblys_contigs_after_cdna_llist[[acc]]
-  tsv = filter(assemblys_filter_cds[[acc]], qName %in% outcontigs_llist$contig_name)
-  title = paste("filtered cDNA:",dd$accession[i],dd$tissue[i],"\n",length(no_hits),"out of",
-                length(incontigs_llist$contig_name), "contigs were not aligned")
   #
-  plots_tqcover_cdna_after[[i]] = ggplot(data = tsv, aes(x = tCoverage, y = qCoverage, 
-       colour = identity)) + geom_jitter(alpha = 0.5) + geom_density2d() + theme(legend.position = "bottom") +
+  no_hits = setdiff(incontigs_llist$contig_name, tsv$qName)
+  tsv_out = filter(tsv, qName %in% outcontigs_llist$contig_name)
+  title = paste("filtered CDNA: ",dd$accession[i], ", ", dd$tissue[i],"\nin ",length(incontigs_llist$contig_name),
+    ", out ",length(outcontigs_llist$contig_name)," (no hits: ",length(no_hits), ", excluded: ",
+     length(tsv$qName) - (length(outcontigs_llist$contig_name) - length(no_hits)), ")", sep="")
+  #
+  plots_tqcover_cdna_after[[i]] = ggplot(data = tsv_out, aes(x = tCoverage, y = qCoverage, 
+      colour = identity)) + geom_jitter(alpha = 0.5) + geom_density2d() + theme(legend.position = "bottom") +
     ggtitle(title) + scale_x_continuous(limits=c(0,100)) + scale_y_continuous(limits=c(0,100)) +
     scale_colour_gradientn(
       name = "Identity:  ",limits = c(50,100),
@@ -325,42 +376,47 @@ for (i in 1:length(dd$accession)) {
       )
     )
 }
-Cairo(
-  width = 1200, height = 1200,
-  file = "cdna_alignment_filtered.pdf", type = "pdf", pointsize = 20,
-  bg = "transparent", canvas = "white", units = "px", dpi = 60
-)
+Cairo(width = 1200, height = 1200, file = "cdna_alignment_filtered.pdf", type = "pdf", pointsize = 20,
+  bg = "transparent", canvas = "white", units = "px", dpi = 60 )
 do.call(grid.arrange,  plots_tqcover_cdna_after)
 dev.off()
 #
 ##################################################################################
 ####### REFSeq PEP ###############################################################
 ##################################################################################
+
+# get the TSV filenames
 #
-assemblys$filter2_refseqpep_tsv <-
-  daply(assemblys, .(accession), function(x) {
-    find_file(x$fullpath, "blat_cdna_refseq_pep.best.tsv", recursive = T)
-  })
-assemblys_filter_refseq_pep <- dlply(assemblys, .(accession), function(x){
-  print(paste(x$filter2_refseqpep_tsv))
-  tsv = fread(input = as.character(x$filter2_refseqpep_tsv))
+tsv_mask <- "blat_cdna_refseq_pep.best.tsv"
+assemblys$filter2_refseqpep_tsv <- daply(assemblys, .(accession), function(x) {
+  find_file(x$fullpath, tsv_mask, recursive = T)  })
+
+# get the TSV data
+#
+cname <- "filter2_refseqpep_tsv"
+assemblys_filter_refseq_pep_tsv <- dlply(assemblys, .(accession), function(x){
+  print(paste(x[,paste(cname)]))
+  tsv = fread(input = as.character(x[,paste(cname)]))
   setnames(tsv, gsub("%","",names(tsv)))
   tsv
 })
+
+# plot the REFSEQ PEP alignment
 #
-plots_tqcover_refpep_before = list()
+plots_tqcover_pep_before = list()
 for (i in 1:length(dd$accession)) {
+  #
   acc = dd$accession[i]
   #
   incontigs_llist = assemblys_contigs_after_cdna_llist[[acc]]
-  tsv = assemblys_filter_refseq_pep[[acc]]
-  no_hits = setdiff(incontigs_llist$contig_name, tsv$tName)
-  title = paste(
-    "refSEQ PEP:",dd$accession[i],dd$tissue[i],"\n",length(no_hits),"out of",
-    length(incontigs_llist$contig_name), "contigs were not aligned"
-  )
+  tsv = assemblys_filter_refseq_pep_tsv[[acc]]
   #
-  plots_tqcover_refpep_before[[i]] = ggplot(data = tsv, aes(x = qCoverage, y = tCoverage, 
+  no_hits = setdiff(incontigs_llist$contig_name, tsv$tName)
+  title = paste("REFSeq PEP:",dd$accession[i],", ",dd$tissue[i],"\n",length(no_hits)," out of ",
+    length(incontigs_llist$contig_name), " contigs were not aligned (", 
+    percent(length(no_hits)/length(incontigs_llist$contig_name)),")",sep="")
+  #
+  plots_tqcover_pep_before[[i]] = ggplot(data = tsv, aes(x = qCoverage, y = tCoverage, 
     colour = identity)) +geom_jitter(alpha = 0.5) + geom_density2d() + theme(legend.position = "bottom") +
     ggtitle(title) + scale_x_continuous(limits=c(0,100)) + scale_y_continuous(limits=c(0,100)) +
     scale_colour_gradientn(
@@ -378,38 +434,45 @@ Cairo(
   file = "refseq_pep_alignment.pdf", type = "pdf", pointsize = 20,
   bg = "transparent", canvas = "white", units = "px", dpi = 60
 )
-do.call(grid.arrange,  plots_tqcover_refpep_before)
+do.call(grid.arrange,  plots_tqcover_pep_before)
 dev.off()
+
+# Get the LLIST filenames
 #
-# Get the out filter contigs LLIST
-#
+llist_mask <- "contigs_after_refseq_pep.llist"
 assemblys$contigs_after_refseq_pep_llist <-
   daply(assemblys, .(accession), function(x) {
-    find_file(x$fullpath, "contigs_after_refseq_pep.llist", recursive = T)
+    find_file(x$fullpath, llist_mask, recursive = T)
   })
+
+# get the LLIST data
+#
+cname <- "contigs_after_refseq_pep_llist"
 assemblys_contigs_after_refseq_pep_llist <- dlply(assemblys, .(accession), function(x){
-  print(paste(x$contigs_after_refseq_pep_llist))
-  list = fread(input = as.character(x$contigs_after_refseq_pep_llist), header = F)
+  print(paste(x[,paste(cname)]))
+  list = fread(input = as.character(x[,paste(cname)]), header = F)
   setnames(list, c("contig_name", "length"))
   list
 })
-#
-# plot the out CDS filter figure
+
+# plot the out REFSEQ PEP filter figure
 #
 plots_tqcover_refseq_pep_after = list()
 for (i in 1:length(dd$accession)) {
   acc = dd$accession[i]
   #
-  incontigs_llist = assemblys_contigs_after_cds_llist[[acc]]
-  tsv = assemblys_filter_refseq_pep[[acc]]
-  no_hits = setdiff(incontigs_llist$contig_name, tsv$tName)
+  incontigs_llist = assemblys_contigs_after_cdna_llist[[acc]]
+  tsv = assemblys_filter_refseq_pep_tsv[[acc]]
   outcontigs_llist = assemblys_contigs_after_refseq_pep_llist[[acc]]
-  tsv = filter(tsv, tName %in% outcontigs_llist$contig_name)
-  title = paste("filtered refSeq PEP:",dd$accession[i],dd$tissue[i],"\n",length(no_hits),"out of",
-             length(incontigs_llist$contig_name), "contigs were not aligned")
   #
-  plots_tqcover_refseq_pep_after[[i]] = ggplot(data = tsv, aes(x = tCoverage, y = qCoverage, 
-    colour = identity)) + geom_jitter(alpha = 0.5) + geom_density2d() + theme(legend.position = "bottom") +
+  no_hits = setdiff(incontigs_llist$contig_name, tsv$tName)
+  tsv_out = filter(tsv, tName %in% outcontigs_llist$contig_name)
+  title = paste("filtered REFSeq PEP: ",dd$accession[i], ", ", dd$tissue[i],"\nin ",length(incontigs_llist$contig_name),
+    ", out ",length(outcontigs_llist$contig_name)," (no hits: ",length(no_hits), ", excluded: ",
+     length(tsv$tName) - (length(outcontigs_llist$contig_name) - length(no_hits)), ")", sep="")
+  #
+  plots_tqcover_refseq_pep_after[[i]] = ggplot(data = tsv_out, aes(x = qCoverage, y = tCoverage, 
+      colour = identity)) + geom_jitter(alpha = 0.5) + geom_density2d() + theme(legend.position = "bottom") +
     ggtitle(title) + scale_x_continuous(limits=c(0,100)) + scale_y_continuous(limits=c(0,100)) +
     scale_colour_gradientn(
       name = "Identity:  ",limits = c(50,100),
@@ -421,42 +484,47 @@ for (i in 1:length(dd$accession)) {
       )
     )
 }
-Cairo(
-  width = 1200, height = 1200,
-  file = "refseq_pep_alignment_filtered.pdf", type = "pdf", pointsize = 20,
-  bg = "transparent", canvas = "white", units = "px", dpi = 60
-)
+Cairo(width = 1200, height = 1200, file = "refseq_pep_alignment_filtered.pdf", type = "pdf", pointsize = 20,
+  bg = "transparent", canvas = "white", units = "px", dpi = 60 )
 do.call(grid.arrange,  plots_tqcover_refseq_pep_after)
 dev.off()
 ##################################################################################
 ####### REFSeq DNA ###############################################################
 ##################################################################################
+
+# get the TSV filenames
 #
-assemblys$filter3_refseqdna_tsv <-
-  daply(assemblys, .(accession), function(x) {
-    find_file(x$fullpath, "blat_pep_refseq_dna.best.tsv", recursive = T)
-  })
-assemblys_filter_refseq_dna <- dlply(assemblys, .(accession), function(x){
-  print(paste(x$filter3_refseqdna_tsv))
-  tsv = fread(input = as.character(x$filter3_refseqdna_tsv))
+tsv_mask <- "blat_pep_refseq_dna.best.tsv"
+assemblys$filter3_refseq_dna_tsv <- daply(assemblys, .(accession), function(x) {
+  find_file(x$fullpath, tsv_mask, recursive = T)  })
+
+# get the TSV data
+#
+cname <- "filter3_refseq_dna_tsv"
+assemblys_filter_refseq_dna_tsv <- dlply(assemblys, .(accession), function(x){
+  print(paste(x[,paste(cname)]))
+  tsv = fread(input = as.character(x[,paste(cname)]))
   setnames(tsv, gsub("%","",names(tsv)))
   tsv
 })
+
+# plot the CDNA alignment
 #
-plots_tqcover_refdna_before = list()
+plots_tqcover_refseq_dna_before = list()
 for (i in 1:length(dd$accession)) {
+  #
   acc = dd$accession[i]
   #
   incontigs_llist = assemblys_contigs_after_refseq_pep_llist[[acc]]
-  tsv = assemblys_filter_refseq_dna[[acc]]
-  no_hits = setdiff(incontigs_llist$contig_name, tsv$tName)
-  title = paste(
-    "refSEQ DNA:",dd$accession[i],dd$tissue[i],"\n",length(no_hits),"out of",
-    length(incontigs_llist$contig_name), "contigs were not aligned"
-  )
+  tsv = assemblys_filter_refseq_dna_tsv[[acc]]
   #
-  plots_tqcover_refdna_before[[i]] = ggplot(data = tsv, aes(x = tCoverage, y = qCoverage, 
-     colour = identity)) +geom_jitter(alpha = 0.5) + geom_density2d() + theme(legend.position = "bottom") +
+  no_hits = setdiff(incontigs_llist$contig_name, tsv$qName)
+  title = paste("REFSeq DNA:",dd$accession[i],", ",dd$tissue[i],"\n",length(no_hits)," out of ",
+                length(incontigs_llist$contig_name), " contigs were not aligned (", 
+    percent(length(no_hits)/length(incontigs_llist$contig_name)),")",sep="")
+  #
+  plots_tqcover_refseq_dna_before[[i]] = ggplot(data = tsv, aes(x = tCoverage, y = qCoverage, 
+    colour = identity)) +geom_jitter(alpha = 0.5) + geom_density2d() + theme(legend.position = "bottom") +
     ggtitle(title) + scale_x_continuous(limits=c(0,100)) + scale_y_continuous(limits=c(0,100)) +
     scale_colour_gradientn(
       name = "Identity:  ",limits = c(50,100),
@@ -473,38 +541,96 @@ Cairo(
   file = "refseq_dna_alignment.pdf", type = "pdf", pointsize = 20,
   bg = "transparent", canvas = "white", units = "px", dpi = 60
 )
-do.call(grid.arrange,  plots_tqcover_refdna_before)
+do.call(grid.arrange,  plots_tqcover_refseq_dna_before)
 dev.off()
+
+# Get the LLIST filenames
 #
-# Get the out filter contigs LLIST
-#
+llist_mask <- "contigs_after_refseq_dna.llist"
 assemblys$contigs_after_refseq_dna_llist <-
   daply(assemblys, .(accession), function(x) {
-    find_file(x$fullpath, "contigs_after_refseq_dna.llist", recursive = T)
+    find_file(x$fullpath, llist_mask, recursive = T)
   })
+
+# get the LLIST data
+#
+cname <- "contigs_after_refseq_dna_llist"
 assemblys_contigs_after_refseq_dna_llist <- dlply(assemblys, .(accession), function(x){
-  print(paste(x$contigs_after_refseq_dna_llist))
-  list = fread(input = as.character(x$contigs_after_refseq_dna_llist), header = F)
+  print(paste(x[,paste(cname)]))
+  list = fread(input = as.character(x[,paste(cname)]), header = F)
   setnames(list, c("contig_name", "length"))
   list
 })
-#
-# plot the out CDS filter figure
+
+# plot the out CDNA filter figure
 #
 plots_tqcover_refseq_dna_after = list()
 for (i in 1:length(dd$accession)) {
   acc = dd$accession[i]
   #
-  incontigs_llist = assemblys_contigs_after_refseq_dna_llist[[acc]]
-  tsv = assemblys_filter_refseq_dna[[acc]]
-  no_hits = setdiff(incontigs_llist$contig_name, tsv$tName)
+  incontigs_llist = assemblys_contigs_after_refseq_pep_llist[[acc]]
+  tsv = assemblys_filter_refseq_dna_tsv[[acc]]
   outcontigs_llist = assemblys_contigs_after_refseq_dna_llist[[acc]]
-  tsv = filter(tsv, qName %in% outcontigs_llist$contig_name)
-  title = paste("filtered refSeq DNA:",dd$accession[i],dd$tissue[i],"\n",length(no_hits),"out of",
-     length(incontigs_llist$contig_name), "contigs were not aligned")
   #
-  plots_tqcover_refseq_dna_after[[i]] = ggplot(data = tsv, aes(x = tCoverage, y = qCoverage, 
-    colour = identity)) + geom_jitter(alpha = 0.5) + geom_density2d() + theme(legend.position = "bottom") +
+  no_hits = setdiff(incontigs_llist$contig_name, tsv$qName)
+  tsv_out = filter(tsv, qName %in% outcontigs_llist$contig_name)
+  title = paste("filtered REFSeq DNA: ",dd$accession[i], ", ", dd$tissue[i],"\nin ",length(incontigs_llist$contig_name),
+    ", out ",length(outcontigs_llist$contig_name)," (no hits: ",length(no_hits), ", excluded: ",
+     length(tsv$qName) - (length(outcontigs_llist$contig_name) - length(no_hits)), ")", sep="")
+  #
+  plots_tqcover_refseq_dna_after[[i]] = ggplot(data = tsv_out, aes(x = tCoverage, y = qCoverage, 
+      colour = identity)) + geom_jitter(alpha = 0.5) + geom_density2d() + theme(legend.position = "bottom") +
+    ggtitle(title) + scale_x_continuous(limits=c(0,100)) + scale_y_continuous(limits=c(0,100)) +
+    scale_colour_gradientn(
+      name = "Identity:  ",limits = c(50,100),
+      colours = c("red","yellow","green","lightblue","darkblue"),
+      breaks = c(50,75,100),labels = c("low(50)","medium(75)","high(100)"),
+      guide = guide_colorbar(
+        title.theme = element_text(size = 14, angle = 0),title.vjust = 1,
+        barheight = 0.6, barwidth = 6, label.theme = element_text(size = 10, angle = 0)
+      )
+    )
+}
+Cairo(width = 1200, height = 1200, file = "refseq_dna_alignment_filtered.pdf", type = "pdf", pointsize = 20,
+  bg = "transparent", canvas = "white", units = "px", dpi = 60 )
+do.call(grid.arrange,  plots_tqcover_refseq_dna_after)
+dev.off()
+##################################################################################
+####### GENOME ###################################################################
+##################################################################################
+
+# get the TSV filenames
+#
+tsv_mask <- "blat_pep_genome.best.tsv"
+assemblys$filter3_genome_tsv <- daply(assemblys, .(accession), function(x) {
+  find_file(x$fullpath, tsv_mask, recursive = T)  })
+
+# get the TSV data
+#
+cname <- "filter3_genome_tsv"
+assemblys_filter_genome_tsv <- dlply(assemblys, .(accession), function(x){
+  print(paste(x[,paste(cname)]))
+  tsv = fread(input = as.character(x[,paste(cname)]))
+  setnames(tsv, gsub("%","",names(tsv)))
+  tsv
+})
+
+# plot the GENOME alignment
+#
+plots_tqcover_genome_before = list()
+for (i in 1:length(dd$accession)) {
+  #
+  acc = dd$accession[i]
+  #
+  incontigs_llist = assemblys_contigs_after_refseq_pep_llist[[acc]]
+  tsv = assemblys_filter_genome_tsv[[acc]]
+  #
+  no_hits = setdiff(incontigs_llist$contig_name, tsv$qName)
+  title = paste("GENOME:",dd$accession[i],", ",dd$tissue[i],"\n",length(no_hits)," out of ",
+                length(incontigs_llist$contig_name), " contigs were not aligned",sep="")
+  #
+  plots_tqcover_genome_before[[i]] = ggplot(data = tsv, aes(x = tCoverage, y = qCoverage, 
+    colour = identity)) +geom_jitter(alpha = 0.5) + geom_density2d() + theme(legend.position = "bottom") +
     ggtitle(title) + scale_x_continuous(limits=c(0,100)) + scale_y_continuous(limits=c(0,100)) +
     scale_colour_gradientn(
       name = "Identity:  ",limits = c(50,100),
@@ -518,8 +644,204 @@ for (i in 1:length(dd$accession)) {
 }
 Cairo(
   width = 1200, height = 1200,
-  file = "refseq_dna_alignment_filtered.pdf", type = "pdf", pointsize = 20,
+  file = "refseq_pep_genome_alignment.pdf", type = "pdf", pointsize = 20,
   bg = "transparent", canvas = "white", units = "px", dpi = 60
 )
-do.call(grid.arrange,  plots_tqcover_refseq_dna_after)
+do.call(grid.arrange,  plots_tqcover_genome_before)
+dev.off()
+
+# Get the LLIST filenames
+#
+llist_mask <- "contigs_after_genome.llist"
+assemblys$contigs_after_genome_llist <-
+  daply(assemblys, .(accession), function(x) {
+    find_file(x$fullpath, llist_mask, recursive = T)
+  })
+
+# get the LLIST data
+#
+cname <- "contigs_after_genome_llist"
+assemblys_contigs_after_genome_llist <- dlply(assemblys, .(accession), function(x){
+  print(paste(x[,paste(cname)]))
+  list = fread(input = as.character(x[,paste(cname)]), header = F)
+  setnames(list, c("contig_name", "length"))
+  list
+})
+
+# plot the out GENOME filter figure
+#
+plots_tqcover_genome_after = list()
+for (i in 1:length(dd$accession)) {
+  acc = dd$accession[i]
+  #
+  incontigs_llist = assemblys_contigs_after_refseq_pep_llist[[acc]]
+  tsv = assemblys_filter_genome_tsv[[acc]]
+  outcontigs_llist = assemblys_contigs_after_genome_llist[[acc]]
+  #
+  no_hits = setdiff(incontigs_llist$contig_name, tsv$qName)
+  tsv_out = filter(tsv, qName %in% outcontigs_llist$contig_name)
+  title = paste("filtered GENOME: ",dd$accession[i], ", ", dd$tissue[i],"\nin ",length(incontigs_llist$contig_name),
+    ", out ",length(outcontigs_llist$contig_name)," (no hits: ",length(no_hits), ", excluded: ",
+     length(tsv$qName) - (length(outcontigs_llist$contig_name) - length(no_hits)), ")", sep="")
+  #
+  plots_tqcover_genome_after[[i]] = ggplot(data = tsv_out, aes(x = tCoverage, y = qCoverage, 
+      colour = identity)) + geom_jitter(alpha = 0.5) + geom_density2d() + theme(legend.position = "bottom") +
+    ggtitle(title) + scale_x_continuous(limits=c(0,100)) + scale_y_continuous(limits=c(0,100)) +
+    scale_colour_gradientn(
+      name = "Identity:  ",limits = c(50,100),
+      colours = c("red","yellow","green","lightblue","darkblue"),
+      breaks = c(50,75,100),labels = c("low(50)","medium(75)","high(100)"),
+      guide = guide_colorbar(
+        title.theme = element_text(size = 14, angle = 0),title.vjust = 1,
+        barheight = 0.6, barwidth = 6, label.theme = element_text(size = 10, angle = 0)
+      )
+    )
+}
+Cairo(width = 1200, height = 1200, file = "refseq_pep_genome_alignment_filtered.pdf", type = "pdf", pointsize = 20,
+  bg = "transparent", canvas = "white", units = "px", dpi = 60 )
+do.call(grid.arrange,  plots_tqcover_genome_after)
+dev.off()
+
+##################################################################################
+####### GENOME AFTER REFSEQ DNA ##################################################
+##################################################################################
+
+# get the TSV filenames
+#
+tsv_mask <- "blat_reseq_dna_genome.best.tsv"
+assemblys$filter4_genome_tsv <- daply(assemblys, .(accession), function(x) {
+  find_file(x$fullpath, tsv_mask, recursive = T)  })
+
+# get the TSV data
+#
+cname <- "filter4_genome_tsv"
+assemblys_filter_genome2_tsv <- dlply(assemblys, .(accession), function(x){
+  print(paste(x[,paste(cname)]))
+  tsv = fread(input = as.character(x[,paste(cname)]))
+  setnames(tsv, gsub("%","",names(tsv)))
+  tsv
+})
+
+# plot the GENOME alignment
+#
+plots_tqcover_genome_before = list()
+for (i in 1:length(dd$accession)) {
+  #
+  acc = dd$accession[i]
+  #
+  incontigs_llist = assemblys_contigs_after_refseq_dna_llist[[acc]]
+  tsv = assemblys_filter_genome2_tsv[[acc]]
+  #
+  no_hits = setdiff(incontigs_llist$contig_name, tsv$qName)
+  title = paste("GENOME2:",dd$accession[i],", ",dd$tissue[i],"\n",length(no_hits)," out of ",
+                length(incontigs_llist$contig_name), " contigs were not aligned",sep="")
+  #
+  plots_tqcover_genome_before[[i]] = ggplot(data = tsv, aes(x = tCoverage, y = qCoverage, 
+    colour = identity)) +geom_jitter(alpha = 0.5) + geom_density2d() + theme(legend.position = "bottom") +
+    ggtitle(title) + scale_x_continuous(limits=c(0,100)) + scale_y_continuous(limits=c(0,100)) +
+    scale_colour_gradientn(
+      name = "Identity:  ",limits = c(50,100),
+      colours = c("red","yellow","green","lightblue","darkblue"),
+      breaks = c(50,75,100),labels = c("low(50)","medium(75)","high(100)"),
+      guide = guide_colorbar(
+        title.theme = element_text(size = 14, angle = 0),title.vjust = 1,
+        barheight = 0.6, barwidth = 6, label.theme = element_text(size = 10, angle = 0)
+      )
+    )
+}
+Cairo(
+  width = 1200, height = 1200,
+  file = "refseq_dna_genome_alignment.pdf", type = "pdf", pointsize = 20,
+  bg = "transparent", canvas = "white", units = "px", dpi = 60
+)
+do.call(grid.arrange,  plots_tqcover_genome_before)
+dev.off()
+
+# Get the LLIST filenames
+#
+llist_mask <- "contigs_after_genome2.llist"
+assemblys$contigs_after_genome2_llist <-
+  daply(assemblys, .(accession), function(x) {
+    find_file(x$fullpath, llist_mask, recursive = T)
+  })
+
+# get the LLIST data
+#
+cname <- "contigs_after_genome2_llist"
+assemblys_contigs_after_genome2_llist <- dlply(assemblys, .(accession), function(x){
+  print(paste(x[,paste(cname)]))
+  list = fread(input = as.character(x[,paste(cname)]), header = F)
+  setnames(list, c("contig_name", "length"))
+  list
+})
+
+# plot the out GENOME filter figure
+#
+plots_tqcover_genome_after = list()
+for (i in 1:length(dd$accession)) {
+  acc = dd$accession[i]
+  #
+  incontigs_llist = assemblys_contigs_after_refseq_dna_llist[[acc]]
+  tsv = assemblys_filter_genome2_tsv[[acc]]
+  outcontigs_llist = assemblys_contigs_after_genome2_llist[[acc]]
+  #
+  no_hits = setdiff(incontigs_llist$contig_name, tsv$qName)
+  tsv_out = filter(tsv, qName %in% outcontigs_llist$contig_name)
+  title = paste("filtered GENOME2: ",dd$accession[i], ", ", dd$tissue[i],"\nin ",length(incontigs_llist$contig_name),
+    ", out ",length(outcontigs_llist$contig_name)," (no hits: ",length(no_hits), ", excluded: ",
+     length(tsv$qName) - (length(outcontigs_llist$contig_name) - length(no_hits)), ")", sep="")
+  #
+  plots_tqcover_genome_after[[i]] = ggplot(data = tsv_out, aes(x = tCoverage, y = qCoverage, 
+      colour = identity)) + geom_jitter(alpha = 0.5) + geom_density2d() + theme(legend.position = "bottom") +
+    ggtitle(title) + scale_x_continuous(limits=c(0,100)) + scale_y_continuous(limits=c(0,100)) +
+    scale_colour_gradientn(
+      name = "Identity:  ",limits = c(50,100),
+      colours = c("red","yellow","green","lightblue","darkblue"),
+      breaks = c(50,75,100),labels = c("low(50)","medium(75)","high(100)"),
+      guide = guide_colorbar(
+        title.theme = element_text(size = 14, angle = 0),title.vjust = 1,
+        barheight = 0.6, barwidth = 6, label.theme = element_text(size = 10, angle = 0)
+      )
+    )
+}
+Cairo(width = 1200, height = 1200, file = "refseq_dna_genome_alignment_filtered.pdf", type = "pdf", pointsize = 20,
+  bg = "transparent", canvas = "white", units = "px", dpi = 60 )
+do.call(grid.arrange,  plots_tqcover_genome_after)
+dev.off()
+#
+#
+#
+dd=data.frame(accession=names(assemblys_contigs_llist), stringsAsFactors=F)
+dd$raw = daply(dd,.(accession),function(x){length(assemblys_contigs_llist[[x$accession]]$contig_name)})
+dd$cds = daply(dd,.(accession),function(x){length(assemblys_contigs_after_cds_llist[[x$accession]]$contig_name)})
+dd$cdna = daply(dd,.(accession),function(x){length(assemblys_contigs_after_cdna_llist[[x$accession]]$contig_name)})
+dd$refseq_pep = daply(dd,.(accession),function(x){length(assemblys_contigs_after_refseq_pep_llist[[x$accession]]$contig_name)})
+dd$genome = daply(dd,.(accession),function(x){length(assemblys_contigs_after_genome_llist[[x$accession]]$contig_name)})
+dd$refseq_dna = daply(dd,.(accession),function(x){length(assemblys_contigs_after_refseq_dna_llist[[x$accession]]$contig_name)})
+dd$genome2 = daply(dd,.(accession),function(x){length(assemblys_contigs_after_genome2_llist[[x$accession]]$contig_name)})
+dd$tissue = daply(dd,.(accession),function(x){assemblys[assemblys$accession==x$accession,]$tissue})
+
+df = melt(dd[,1:6],id.vars=c("accession"))
+p1 = ggplot(df, aes(x=variable,y=value,group=accession)) + geom_line() + ggtitle("Filtering option 1")
+
+df2 = melt(dd[,c(1,2,3,4,5,7,8)],id.vars=c("accession"))
+p2 = ggplot(df2, aes(x=variable,y=value,group=accession)) + geom_line() + ggtitle("Filtering option 2 (via REFSeq DNA)")
+Cairo(width = 900, height = 600, file = "filtering_process.pdf", type = "pdf", pointsize = 20,
+      bg = "transparent", canvas = "white", units = "px", dpi = 60 )
+grid.arrange(p1, p2, ncol=2)
+dev.off()
+
+arranged = dlply(dd, .(tissue), function(x){x})
+plots_filter_by_tissue = llply(arranged, function(x){
+  tissue = unique(x$tissue)
+  df = melt(x[,c(1,2,3,4,5,7,8)],id.vars=c("accession"))
+  plot_assembly_results <- ggplot(df, aes(x=variable,y=value,group=accession)) + geom_line() + 
+    ggtitle(tissue) + theme(legend.position="bottom", legend.text=element_text(size=8),
+                            legend.title=element_blank(), legend.key.size = unit(0.3, "lines"))
+  plot_assembly_results
+})
+
+Cairo(width = 1300, height = 1300, file = "filter_by_tissue2.pdf", type = "pdf", pointsize = 20,
+        bg = "transparent", canvas = "white", units = "px", dpi = 60 )
+do.call(grid.arrange,  plots_filter_by_tissue)
 dev.off()
